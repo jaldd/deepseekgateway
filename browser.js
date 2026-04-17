@@ -356,21 +356,28 @@ class BrowserManager {
   }
 
   async waitForResponse() {
-    const maxWaitTime = 60000;
+    const maxWaitTime = 180000;
     const startTime = Date.now();
 
     await this.page.waitForTimeout(2000);
 
-    while (Date.now() - startTime < maxWaitTime) {
-      const stopButtonSelectors = [
-        'button[aria-label="停止生成"]',
-        'button[aria-label*="停止"]',
-        'button:has-text("停止生成")',
-        '.stop-generating',
-        '[data-testid="stop-button"]'
-      ];
+    const stopButtonSelectors = [
+      'button[aria-label="停止生成"]',
+      'button[aria-label*="停止"]',
+      'button:has-text("停止生成")',
+      'button:has-text("停止")',
+      '.stop-generating',
+      '[data-testid="stop-button"]',
+      'button[class*="stop"]',
+      'button[class*="abort"]',
+      'svg[class*="stop"]',
+      '[class*="loading"]',
+      '[class*="generating"]'
+    ];
 
+    while (Date.now() - startTime < maxWaitTime) {
       let isGenerating = false;
+      
       for (const selector of stopButtonSelectors) {
         try {
           const stopButton = await this.page.$(selector);
@@ -384,7 +391,7 @@ class BrowserManager {
       }
 
       if (!isGenerating) {
-        await this.page.waitForTimeout(1500);
+        await this.page.waitForTimeout(2000);
         
         let stillGenerating = false;
         for (const selector of stopButtonSelectors) {
@@ -400,7 +407,38 @@ class BrowserManager {
         }
 
         if (!stillGenerating) {
-          console.log('[Browser] AI 回复完成');
+          console.log('[Browser] AI 回复完成，等待内容稳定...');
+          
+          let lastLength = 0;
+          let stableCount = 0;
+          
+          while (stableCount < 3 && Date.now() - startTime < maxWaitTime) {
+            await this.page.waitForTimeout(1000);
+            
+            const currentLength = await this.page.evaluate(() => {
+              const selectors = ['.ds-markdown', '.markdown-body', '[class*="markdown"]'];
+              for (const selector of selectors) {
+                const elements = document.querySelectorAll(selector);
+                if (elements.length > 0) {
+                  return elements[elements.length - 1].innerText.length;
+                }
+              }
+              return 0;
+            });
+            
+            console.log('[Browser] 内容长度:', currentLength);
+            
+            if (currentLength === lastLength && currentLength > 0) {
+              stableCount++;
+              console.log('[Browser] 内容稳定计数:', stableCount);
+            } else {
+              stableCount = 0;
+            }
+            
+            lastLength = currentLength;
+          }
+          
+          console.log('[Browser] 内容已稳定，准备提取');
           return;
         }
       }
@@ -416,20 +454,155 @@ class BrowserManager {
   }
 
   async extractLatestResponse() {
+    await this.page.waitForTimeout(500);
+
+    try {
+      const markdownContent = await this.page.evaluate(() => {
+        const selectors = [
+          '.ds-markdown',
+          '.markdown-body',
+          '[class*="markdown"]',
+          '[class*="response"]',
+          '[class*="answer"]'
+        ];
+        
+        for (const selector of selectors) {
+          const elements = document.querySelectorAll(selector);
+          if (elements.length > 0) {
+            const lastElement = elements[elements.length - 1];
+            
+            const processNode = (node) => {
+              if (node.nodeType === Node.TEXT_NODE) {
+                return node.textContent;
+              }
+              
+              if (node.nodeType === Node.ELEMENT_NODE) {
+                const tagName = node.tagName.toLowerCase();
+                
+                if (tagName === 'code') {
+                  const codeText = node.textContent;
+                  if (node.parentElement && node.parentElement.tagName.toLowerCase() === 'pre') {
+                    return '\n```\n' + codeText + '\n```\n';
+                  }
+                  return '`' + codeText + '`';
+                }
+                
+                if (tagName === 'pre') {
+                  const code = node.querySelector('code');
+                  if (code) {
+                    return '\n```\n' + code.textContent + '\n```\n';
+                  }
+                  return '\n```\n' + node.textContent + '\n```\n';
+                }
+                
+                if (tagName === 'br') {
+                  return '\n';
+                }
+                
+                if (tagName === 'p') {
+                  let content = '';
+                  for (const child of node.childNodes) {
+                    content += processNode(child);
+                  }
+                  return content.trim() + '\n\n';
+                }
+                
+                if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(tagName)) {
+                  const level = parseInt(tagName[1]);
+                  let content = '';
+                  for (const child of node.childNodes) {
+                    content += processNode(child);
+                  }
+                  return '\n' + '#'.repeat(level) + ' ' + content.trim() + '\n\n';
+                }
+                
+                if (tagName === 'strong' || tagName === 'b') {
+                  let content = '';
+                  for (const child of node.childNodes) {
+                    content += processNode(child);
+                  }
+                  return '**' + content + '**';
+                }
+                
+                if (tagName === 'em' || tagName === 'i') {
+                  let content = '';
+                  for (const child of node.childNodes) {
+                    content += processNode(child);
+                  }
+                  return '*' + content + '*';
+                }
+                
+                if (tagName === 'ul' || tagName === 'ol') {
+                  let content = '\n';
+                  const items = node.querySelectorAll(':scope > li');
+                  items.forEach((item, index) => {
+                    const prefix = tagName === 'ul' ? '- ' : `${index + 1}. `;
+                    content += prefix + processNode(item).trim() + '\n';
+                  });
+                  return content + '\n';
+                }
+                
+                if (tagName === 'li') {
+                  let content = '';
+                  for (const child of node.childNodes) {
+                    content += processNode(child);
+                  }
+                  return content;
+                }
+                
+                let content = '';
+                for (const child of node.childNodes) {
+                  content += processNode(child);
+                }
+                return content;
+              }
+              
+              return '';
+            };
+            
+            let result = '';
+            for (const child of lastElement.childNodes) {
+              result += processNode(child);
+            }
+            
+            return result.trim();
+          }
+        }
+        
+        return null;
+      });
+      
+      if (markdownContent && markdownContent.trim().length > 0) {
+        console.log('[Browser] Markdown 提取成功，长度:', markdownContent.length);
+        return markdownContent;
+      }
+    } catch (e) {
+      console.error('[Browser] Markdown 提取失败:', e.message);
+    }
+
     const selectors = [
-      '.ds-message:last-child',
-      '.message:last-child',
+      '.ds-markdown.ds-markdown',
+      '.ds-markdown',
+      '.markdown-body',
+      '[class*="markdown"]',
+      '.ds-message:last-child .ds-markdown',
+      '.message:last-child .markdown-body',
       '[data-role="assistant"]:last-child',
       '.assistant-message:last-child',
-      '.chat-message:last-child'
+      '.chat-message:last-child',
+      '.prose:last-child',
+      '[class*="response"]:last-child',
+      '[class*="answer"]:last-child'
     ];
 
     for (const selector of selectors) {
       try {
-        const element = await this.page.$(selector);
-        if (element) {
-          const text = await element.innerText();
+        const elements = await this.page.$$(selector);
+        if (elements.length > 0) {
+          const lastElement = elements[elements.length - 1];
+          const text = await lastElement.innerText();
           if (text && text.trim().length > 0) {
+            console.log('[Browser] 使用选择器提取成功:', selector);
             return text.trim();
           }
         }
