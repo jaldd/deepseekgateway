@@ -1,0 +1,27 @@
+{
+  "name": "openclaw-gateway",
+  "version": "1.0.0",
+  "description": "OpenClaw-Zero-Token 本地网关 - 支持 OpenAI 和 Anthropic Claude API",
+  "endpoints": {
+    "openai": {
+      "url": "http://localhost:9083/v1",
+      "apiKey": "local",
+      "model": "deepseek-chat",
+      "endpoint": "/chat/completions"
+    },
+    "anthropic": {
+      "url": "http://localhost:9083/v1",
+      "apiKey": "local",
+      "model": "claude-3-opus-20240229",
+      "endpoint": "/messages"
+    }
+  },
+  "usage": {
+    "openai": {
+      "curl": "curl -X POST http://localhost:9083/v1/chat/completions -H \"Content-Type: application/json\" -d '{\"model\":\"deepseek-chat\",\"messages\":[{\"role\":\"user\",\"content\":\"你好\"}]}'"
+    },
+    "anthropic": {
+      "curl": "curl -X POST http://localhost:9083/v1/messages -H \"Content-Type: application/json\" -H \"x-api-key: local\" -d '{\"model\":\"claude-3-opus-20240229\",\"max_tokens\":1024,\"messages\":[{\"role\":\"user\",\"content\":\"你好\"}]}'"
+    }
+  }
+}

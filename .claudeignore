@@ -1,0 +1,58 @@
+# Dependencies
+node_modules/
+vendor/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+out/
+target/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Large files
+*.zip
+*.tar.gz
+*.rar
+*.7z
+*.exe
+*.dll
+
+# Storage state
+storage-state.json
+
+# Temporary
+tmp/
+temp/
+*.tmp
+*.bak
+
+# Documentation
+*.md
+!CLAUDE.md
+
+# Config files
+.env
+.env.local
+*.json
+!claude-config-example.json

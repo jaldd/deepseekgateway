@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "deepseek-gateway": {
+      "command": "node",
+      "args": [
+        "./mcp-server.js"
+      ],
+      "env": {
+        "OPENAI_BASE_URL": "http://localhost:9083/v1",
+        "OPENAI_MODEL_NAME": "deepseek-chat"
+      }
+    }
+  }
+}

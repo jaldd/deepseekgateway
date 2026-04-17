@@ -1,0 +1,30 @@
+{
+  "name": "openclaw-gateway",
+  "version": "1.0.0",
+  "description": "OpenClaw-Zero-Token 本地网关 - 通过 Playwright 调用 DeepSeek 网页版",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "security-check": "npm audit",
+    "security-fix": "npm audit fix",
+    "generate-key": "node -e \"console.log('ENCRYPTION_KEY=' + require('crypto').randomBytes(32).toString('hex'))\""
+  },
+  "keywords": [
+    "deepseek",
+    "openai",
+    "gateway",
+    "playwright"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "playwright": "^1.40.0",
+    "fs-extra": "^11.2.0",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "node-fetch": "^2.7.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
