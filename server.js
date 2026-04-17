@@ -1,5 +1,7 @@
 const express = require('express');
 const BrowserManager = require('./browser');
+const fs = require('fs-extra');
+const path = require('path');
 
 const app = express();
 const PORT = 9083;
@@ -128,6 +130,137 @@ setInterval(() => {
     }
   }
 }, CACHE_TTL);
+
+async function resolveFileReferences(text) {
+  const filePatterns = [
+    /@file:(\/[^\s]+)/g,
+    /@file:\/\/([^\s]+)/g,
+    /\[([^\]]+)\]\(file:\/\/([^\)]+)\)/g
+  ];
+  
+  let resolvedText = text;
+  const resolvedFiles = [];
+  
+  const fileUrlPattern = /@file:?(?:\/+)?([A-Za-z]:[^\s]+)/gi;
+  let match;
+  
+  while ((match = fileUrlPattern.exec(text)) !== null) {
+    const filePath = decodeURIComponent(match[1]).replace(/\//g, path.sep);
+    
+    try {
+      if (await fs.pathExists(filePath)) {
+        const content = await fs.readFile(filePath, 'utf8');
+        const ext = path.extname(filePath);
+        const langMap = {
+          '.js': 'javascript',
+          '.ts': 'typescript',
+          '.py': 'python',
+          '.java': 'java',
+          '.go': 'go',
+          '.rs': 'rust',
+          '.c': 'c',
+          '.cpp': 'cpp',
+          '.h': 'c',
+          '.hpp': 'cpp',
+          '.cs': 'csharp',
+          '.rb': 'ruby',
+          '.php': 'php',
+          '.swift': 'swift',
+          '.kt': 'kotlin',
+          '.scala': 'scala',
+          '.json': 'json',
+          '.xml': 'xml',
+          '.html': 'html',
+          '.css': 'css',
+          '.scss': 'scss',
+          '.sql': 'sql',
+          '.sh': 'bash',
+          '.yaml': 'yaml',
+          '.yml': 'yaml',
+          '.md': 'markdown',
+          '.vue': 'vue',
+          '.jsx': 'jsx',
+          '.tsx': 'tsx'
+        };
+        
+        const lang = langMap[ext] || '';
+        const fileName = path.basename(filePath);
+        
+        const fileBlock = `\n\n---\n文件: ${fileName}\n\`\`\`${lang}\n${content}\n\`\`\`\n---\n`;
+        
+        resolvedText = resolvedText.replace(match[0], fileBlock);
+        resolvedFiles.push(fileName);
+        
+        console.log('[Server] 已读取文件:', fileName, '大小:', content.length);
+      } else {
+        console.log('[Server] 文件不存在:', filePath);
+      }
+    } catch (error) {
+      console.error('[Server] 读取文件失败:', filePath, error.message);
+    }
+  }
+  
+  const markdownFilePattern = /\[([^\]]+)\]\(file:\/\/\/([^\)]+)\)/g;
+  while ((match = markdownFilePattern.exec(text)) !== null) {
+    const filePath = decodeURIComponent(match[2]).replace(/\//g, path.sep);
+    
+    try {
+      if (await fs.pathExists(filePath)) {
+        const content = await fs.readFile(filePath, 'utf8');
+        const ext = path.extname(filePath);
+        const langMap = {
+          '.js': 'javascript',
+          '.ts': 'typescript',
+          '.py': 'python',
+          '.java': 'java',
+          '.go': 'go',
+          '.rs': 'rust',
+          '.c': 'c',
+          '.cpp': 'cpp',
+          '.h': 'c',
+          '.hpp': 'cpp',
+          '.cs': 'csharp',
+          '.rb': 'ruby',
+          '.php': 'php',
+          '.swift': 'swift',
+          '.kt': 'kotlin',
+          '.scala': 'scala',
+          '.json': 'json',
+          '.xml': 'xml',
+          '.html': 'html',
+          '.css': 'css',
+          '.scss': 'scss',
+          '.sql': 'sql',
+          '.sh': 'bash',
+          '.yaml': 'yaml',
+          '.yml': 'yaml',
+          '.md': 'markdown',
+          '.vue': 'vue',
+          '.jsx': 'jsx',
+          '.tsx': 'tsx'
+        };
+        
+        const lang = langMap[ext] || '';
+        const fileName = path.basename(filePath);
+        
+        const fileBlock = `\n\n---\n文件: ${fileName}\n\`\`\`${lang}\n${content}\n\`\`\`\n---\n`;
+        
+        resolvedText = resolvedText.replace(match[0], fileBlock);
+        resolvedFiles.push(fileName);
+        
+        console.log('[Server] 已读取文件:', fileName, '大小:', content.length);
+      }
+    } catch (error) {
+      console.error('[Server] 读取文件失败:', filePath, error.message);
+    }
+  }
+  
+  if (resolvedFiles.length > 0) {
+    console.log('[Server] 共解析', resolvedFiles.length, '个文件引用');
+  }
+  
+  return resolvedText;
+}
 
 function generateChatId() {
   return 'chatcmpl-' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
@@ -284,10 +417,8 @@ app.post('/v1/messages', async (req, res) => {
     if (typeof lastUserMessage.content === 'string') {
       userContent = lastUserMessage.content;
     } else if (Array.isArray(lastUserMessage.content)) {
-      // 遍历所有元素，找到不包含系统提示的text元素
       const textElements = lastUserMessage.content.filter(c => c.type === 'text' && c.text);
       
-      // 找到不包含<system-reminder>的元素
       const userTextElement = textElements.find(el => 
         !el.text.includes('<system-reminder>') && el.text.trim().length > 0
       );
@@ -296,7 +427,6 @@ app.post('/v1/messages', async (req, res) => {
         userContent = userTextElement.text;
         console.log('[Server] 找到用户输入元素');
       } else {
-        // 如果都包含系统提示，取最后一个元素
         const lastElement = textElements[textElements.length - 1];
         userContent = lastElement ? lastElement.text : '';
         console.log('[Server] 使用最后一个text元素');
@@ -304,8 +434,63 @@ app.post('/v1/messages', async (req, res) => {
     } else {
       userContent = String(lastUserMessage.content);
     }
+
+    let codeContext = '';
+    const systemMessage = messages.find(m => m.role === 'system');
+    if (systemMessage) {
+      let systemContent = '';
+      if (typeof systemMessage.content === 'string') {
+        systemContent = systemMessage.content;
+      } else if (Array.isArray(systemMessage.content)) {
+        systemContent = systemMessage.content
+          .filter(c => c.type === 'text')
+          .map(c => c.text)
+          .join('\n');
+      }
+      
+      systemContent = systemContent
+        .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
+        .replace(/<env>[\s\S]*?<\/env>/g, '')
+        .replace(/<tool_result>[\s\S]*?<\/tool_result>/g, '')
+        .replace(/<function_results>[\s\S]*?<\/function_results>/g, '')
+        .trim();
+      
+      if (systemContent.length > 100) {
+        console.log('[Server] 提取到代码上下文，原始长度:', systemContent.length);
+        
+        const fileReferences = systemContent.match(/\[.*?\]\(file:\/\/[^\)]+\)/g) || [];
+        const codeBlocks = systemContent.match(/```[\s\S]*?```/g) || [];
+        
+        let contextParts = [];
+        
+        if (fileReferences.length > 0) {
+          contextParts.push('相关文件:\n' + fileReferences.slice(0, 20).join('\n'));
+        }
+        
+        if (codeBlocks.length > 0) {
+          const totalCode = codeBlocks.join('\n\n');
+          if (totalCode.length > 500) {
+            contextParts.push('代码片段:\n' + totalCode.substring(0, 6000));
+          }
+        }
+        
+        if (contextParts.length > 0) {
+          codeContext = '<上下文信息>\n' + contextParts.join('\n\n') + '\n</上下文信息>\n\n';
+          console.log('[Server] 构建上下文，长度:', codeContext.length);
+        } else if (systemContent.length < 5000) {
+          codeContext = '<上下文信息>\n' + systemContent + '\n</上下文信息>\n\n';
+          console.log('[Server] 使用完整上下文');
+        }
+      }
+    }
     
-    console.log('[Server] 最终用户消息长度:', userContent.length);
+    const finalMessage = codeContext + userContent;
+    console.log('[Server] 最终消息长度:', finalMessage.length);
+    
+    const resolvedMessage = await resolveFileReferences(finalMessage);
+    if (resolvedMessage !== finalMessage) {
+      console.log('[Server] 解析文件引用后消息长度:', resolvedMessage.length);
+    }
 
     const cachedResponse = getCachedResponse(userContent);
     if (cachedResponse) {
@@ -324,7 +509,7 @@ app.post('/v1/messages', async (req, res) => {
     }
 
     console.log('[Server] 开始处理 Anthropic 请求...');
-    const response = await browserManager.sendMessage(userContent);
+    const response = await browserManager.sendMessage(resolvedMessage);
     
     const anthropicResponse = createAnthropicResponse(response, model || 'claude-3-opus-20240229');
     console.log('[Server] Anthropic 请求处理完成');

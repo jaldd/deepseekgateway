@@ -255,7 +255,15 @@ class BrowserManager {
       await this.page.fill(inputSelector, '');
       await this.page.waitForTimeout(300);
       
-      await this.page.type(inputSelector, sanitizedMessage, { delay: 50, timeout: 30000 });
+      console.log('[Browser] 使用剪贴板粘贴消息，长度:', sanitizedMessage.length);
+      await this.page.evaluate((text) => {
+        navigator.clipboard.writeText(text);
+      }, sanitizedMessage);
+      await this.page.waitForTimeout(200);
+      await this.page.focus(inputSelector);
+      await this.page.keyboard.down('Control');
+      await this.page.keyboard.press('v');
+      await this.page.keyboard.up('Control');
       await this.page.waitForTimeout(500);
       
       const sendButton = await this.findSendButton();
